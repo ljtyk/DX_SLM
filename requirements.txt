@@ -1,0 +1,15 @@
+torch
+transformers
+tokenizers
+datasets
+peft
+trl
+bitsandbytes
+sentencepiece
+lion-pytorch
+pandas
+pyarrow
+numpy
+matplotlib
+tensorboard
+tqdm

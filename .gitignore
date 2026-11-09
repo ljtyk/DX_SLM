@@ -1,0 +1,32 @@
+# Environment / IDE
+.venv/
+.idea/
+__pycache__/
+*.pyc
+
+# Model weights and checkpoints (too large for GitHub)
+checkpoints/
+aligned-model/
+aligned-tokenizer/
+sft-neo-qlora/
+sft-neo-qlora-final/
+*.pt
+*.pth
+*.safetensors
+*.bin
+
+# Training logs
+logs/
+runs/
+
+# Datasets (third-party; see README for sources)
+cache/
+excluded/
+*.parquet
+*.jsonl
+tokenizer_input.txt
+pg_catalog.csv
+
+# SentencePiece artefacts
+tokenizer.model
+tokenizer.vocab
