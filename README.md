@@ -22,6 +22,34 @@ code than the earlier ones.
 | 3. Chat fine-tuning | `SFT_train.py`, `run_interact.py` | Fine-tunes the pretrained model on `Human:` / `Assistant:` dialogues, and adds a small experiment I call "gradient fuzzing" (uniform noise proportional to each gradient's magnitude). `run_interact.py` is a terminal chat loop for the result. |
 | 4. QLoRA on a larger model | `SFT.py`, `SFT_run.py` | 4-bit QLoRA fine-tune of GPT-Neo 1.3B on the Alpaca instruction dataset using PEFT and TRL, run for 3 epochs (39,003 steps). `SFT_run.py` runs inference with the adapter. |
 
+## Data pipeline
+
+A large share of the time on this project went into the data rather than the
+model. The pretraining corpus is Project Gutenberg, processed by
+`train_tokenizer.py` and `tokenizer.py`:
+
+1. **Language filter.** Using Gutenberg's `pg_catalog.csv`, every book whose type is
+   not `Text` or whose language is not exactly `en` is moved out of the corpus
+   (multi-language books such as `en; fr` are excluded too).
+2. **Boilerplate removal.** `clean_gutenberg_text` cuts each book down to the text
+   between the `*** START OF ... ***` and `*** END OF ... ***` markers, dropping the
+   licence header and footer that would otherwise appear in every training file.
+3. **Whitespace normalisation.** Line endings are unified and every run of
+   whitespace becomes a single space. This removes Gutenberg's hard line-wrapping,
+   but it also removes paragraph breaks, which is why the model writes in one
+   continuous block.
+4. **Validation split.** Roughly 180 MB of cleaned books are moved, whole, into a
+   separate validation folder, so validation text comes from books the model never
+   trains on.
+5. **Tokenizer.** A byte-level BPE tokenizer with a 12,000-token vocabulary, NFKC
+   normalisation and `<PAD>` / `<BOS>` / `<EOS>` special tokens is trained on the
+   corpus. An earlier attempt used a 30,000-piece SentencePiece model trained on
+   a 512 MB sample, and the first version of `model.py` used the stock GPT-2
+   tokenizer.
+6. **Streaming.** During training, `ChunkedStreamingTextDataset` reads one book at
+   a time, tokenizes it, and cuts it into 1,024-token chunks, padding the last chunk
+   and masking the padding out of the loss. The corpus never has to fit in memory.
+
 ## Results
 
 ### Pretrained model: Gutenberg prose

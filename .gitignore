@@ -1,3 +1,6 @@
+# Pretraining reproduction working data (books, checkpoints, logs)
+reproduction/work/
+
 # Environment / IDE
 .venv/
 .idea/
