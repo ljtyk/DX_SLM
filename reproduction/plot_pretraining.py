@@ -37,7 +37,15 @@ def load_scalars():
             train += [(e.step, e.value, e.wall_time) for e in ea.Scalars("Loss/train")]
         if "Loss/val" in tags:
             val += [(e.step, e.value, e.wall_time) for e in ea.Scalars("Loss/val")]
-    return sorted(train), sorted(val)
+    # After a resume, steps between the last checkpoint and the interruption are logged
+    # twice (once per run). Keep the later run's value for each step.
+    def dedupe(points):
+        latest = {}
+        for s, v, t in points:
+            if s not in latest or t > latest[s][2]:
+                latest[s] = (s, v, t)
+        return sorted(latest.values())
+    return dedupe(train), dedupe(val)
 
 
 def rolling(values, half_window=15):
@@ -70,8 +78,13 @@ def report(train, val):
 def plot(train, val, evals):
     ts = [s * TOKENS_PER_STEP / 1e9 for s, _, _ in train]
     tl = [v for _, v, _ in train]
-    vs = [s * TOKENS_PER_STEP / 1e9 for s, _, _ in val]
-    vl = [v for _, v, _ in val]
+    # Validation points: snapshots scored by eval_checkpoints.py on one fixed sample of
+    # ~50 held-out books (the same sample as the original checkpoints). GPT2_model.py's
+    # own validation (Loss/val) uses ~5 books chosen afresh at every start-up, so it
+    # jumps at each resume and is not plotted.
+    snaps = sorted({v["global_step"]: v["val_loss"] for k, v in evals.items() if k.startswith("snap_")}.items())
+    vs = [s * TOKENS_PER_STEP / 1e9 for s, _ in snaps]
+    vl = [v for _, v in snaps]
 
     for name, c in THEMES.items():
         fig, ax = plt.subplots(figsize=(9, 4.8), dpi=150)
@@ -80,28 +93,31 @@ def plot(train, val, evals):
 
         ax.plot(ts, tl, color=c["train"], linewidth=0.6, alpha=0.25)
         ax.plot(ts, rolling(tl), color=c["train"], linewidth=2, label="Training loss (smoothed)")
-        if val:
-            ax.plot(vs, vl, color=c["val"], linewidth=2, label="Validation loss")
-            ax.text(vs[-1], vl[-1] + 0.06, f"val {vl[-1]:.2f}", color=c["text"], fontsize=9, ha="right")
+        if snaps:
+            ax.plot(vs, vl, color=c["val"], linewidth=2, marker="o", markersize=5,
+                    markeredgecolor=c["surface"], markeredgewidth=1.5,
+                    label="Validation loss (~50 held-out books)")
+            ax.text(vs[-1], vl[-1] + 0.12, f"{vl[-1]:.2f}", color=c["text"], fontsize=9, ha="center")
 
-        # The original checkpoints, scored on a fixed sample of the same validation books.
-        # Their x-position (tokens seen) is unknown, so they are drawn as reference levels.
-        for key, label in [("original_final", "original final.pt"), ("original_latest", "original latest.pt")]:
+        # The original checkpoints, scored on the same fixed sample. Their position on the
+        # x-axis is not known reliably, so they are drawn as reference levels.
+        for key, label, dy, va in [("original_final", "original final.pt", 0.03, "bottom"),
+                                   ("original_latest", "original latest.pt", -0.03, "top")]:
             if key in evals:
                 y = evals[key]["val_loss"]
                 ax.axhline(y, color=c["muted"], linewidth=1, linestyle=(0, (3, 3)))
-                ax.text(0.01, y + 0.03, f"{label} (step {evals[key]['global_step']:,}): {y:.2f}",
-                        transform=ax.get_yaxis_transform(), color=c["muted"], fontsize=9)
+                ax.text(0.01, y + dy, f"{label} (step {evals[key]['global_step']:,}): {y:.2f}",
+                        transform=ax.get_yaxis_transform(), color=c["muted"], fontsize=9, va=va)
 
         refs = [evals[k]["val_loss"] for k in ("original_final", "original_latest") if k in evals]
-        lo = max(0, min(tl + vl + refs) - 0.3)
-        hi = 6.0 if min(tl) < 4 else max(tl) + 0.2  # clip the first few steps (loss ~9.5)
+        lo = max(0, min(rolling(tl) + vl + refs) - 0.4)  # ignore single-batch dips
+        hi = 7.5  # clip the first few steps (loss ~9.5)
         ax.set_ylim(lo, hi)
         if tl[0] > hi:
             ax.text(0.01, 0.97, f"starts at {tl[0]:.1f}", transform=ax.transAxes,
                     color=c["muted"], fontsize=9, va="top")
         ax.set_xlim(0, ts[-1])
-        ax.set_title("Reproduction: pretraining GPT-2 (95M) on Project Gutenberg", color=c["text"],
+        ax.set_title("Re-run: pretraining GPT-2 (95M) on Project Gutenberg", color=c["text"],
                      loc="left", fontsize=12, pad=12)
         ax.set_xlabel("Training tokens seen (billions)", color=c["muted"])
         ax.set_ylabel("Cross-entropy loss", color=c["muted"])

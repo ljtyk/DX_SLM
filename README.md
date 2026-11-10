@@ -116,7 +116,33 @@ down, and the "eval" set is 64 examples from the training data. The useful signa
 the shape: almost all of the learning happens in the first few hundred steps, and the
 second and third epochs add very little.
 
-The pretraining run's TensorBoard logs were not kept, so there is no curve for it.
+### Pretraining loss (re-run)
+
+The original pretraining logs were not kept, so I re-ran the unmodified
+`GPT2_model.py` on a fresh download of English Gutenberg (61,185 training books,
+22 GB after my cleaning code) to recreate the curve:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="results/pretraining_loss_dark.png">
+  <img alt="Re-run of GPT-2 95M pretraining: training loss falls steeply from 9.6 to about 4 in the first 2 billion tokens, then flattens; validation loss on held-out books goes from 3.74 to 3.45 between 2.6 and 5.1 billion tokens. Dashed reference lines mark the original final.pt at 3.11 and latest.pt at 2.99." src="results/pretraining_loss_light.png">
+</picture>
+
+It shows the shape, not an exact replay: the books, their order and the run length
+differ from the original. Validation points are checkpoints scored on one fixed
+sample of about 50 held-out books, and the dashed lines are my original checkpoints
+scored on the same sample:
+
+| Checkpoint | Step | Validation loss |
+|---|---|---|
+| Re-run, stopped after ~11 GPU-hours (RTX 5090) | 200,760 | 3.45 |
+| Original `final.pt` | 746,543 | 3.11 |
+| Original `latest.pt` | 2,037,714 | 2.99 |
+
+Most of the learning happens in the first two billion tokens. After that, with a
+constant learning rate, progress is slow: the original needed about 3.7× the
+re-run's steps to get 0.34 lower, and another 1.3 million steps for a further 0.13.
+The original ran for about three and a half weeks on an RTX 5000 Ada, across several
+resumed runs. The re-run scripts are in [reproduction/](reproduction/).
 
 ## What I learned along the way
 
@@ -147,6 +173,7 @@ Rough order:
 5. `run_interact.py` — chat with the fine-tuned model.
 6. `SFT.py` then `SFT_run.py` — the separate QLoRA experiment.
 7. `results/generate_samples.py`, `results/generate_qlora_samples.py` and `results/plot_loss.py` — regenerate the results above.
+8. `reproduction/run_all.bat` — the pretraining re-run: fetch and clean Gutenberg, score the original checkpoints, then train. Fastest with the bulk archive (`https://www.gutenberg.org/cache/epub/feeds/txt-files.tar.zip`, unpacked by `extract_archive.py`). `plot_pretraining.py` draws the curve.
 
 Model weights and datasets are not in this repository (see below), so steps 3 and 4
 need to be run before step 5 will work.
@@ -170,6 +197,12 @@ Things I would fix or do differently now:
 - `GPT2_model.py` has `import matplotlib as plt` (it should be `matplotlib.pyplot`);
   it only goes unnoticed because the attention-plotting loop never runs. Training
   also uses a constant learning rate with no warmup or decay.
+- `GPT2_model.py`'s validation uses only the first 20 batches (about 5 books) of a
+  list shuffled afresh at every start-up, so the number jumps whenever training is
+  resumed. Resuming also restarts the epoch loop with a new shuffle.
+- The cleaning step removes paragraph breaks along with Gutenberg's hard line
+  wrapping. I would now unwrap lines but keep the blank lines between paragraphs:
+  they mark dialogue turns and topic changes, which matter for a chat model later.
 - `SFT_train.py` computes loss on padding tokens instead of masking them, and clips
   gradients without unscaling them first under mixed precision. The saved model
   config keeps GPT-2's default end-of-sequence id (50256) even though the

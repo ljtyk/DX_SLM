@@ -4,6 +4,9 @@ Run from reproduction/work/:  python ../download_gutenberg.py
 Creates pg_catalog.csv and cache/epub/{id}/pg{id}.txt. Applies the same filter as
 the remove_non_english step in train_tokenizer.py (Type == "Text", Language == "en"),
 so non-English books are never downloaded. Resumable: existing files are skipped.
+
+This fetches books one at a time (~1 MB/s, many hours). The fast route is the bulk
+archive plus extract_archive.py; this script then only fills in what it lacks.
 """
 import csv
 import os
